@@ -4,9 +4,10 @@ This small Spring Boot service is the workload used by the GitOps Disaster
 Recovery Simulator. It provides observable HTTP behavior for later container,
 Kubernetes, GitOps, and controlled recovery exercises.
 
-The application currently has no database, authentication, frontend, Docker
-image, or Kubernetes deployment. Database integration is intentionally deferred
-until a future persistence and multi-region design phase.
+The application currently has no database, authentication, frontend, or
+Kubernetes deployment. Database integration is intentionally deferred until a
+future persistence and multi-region design phase. Module 5 adds a local Docker
+image; Kubernetes and GitOps deployment remain future work.
 
 ## Application Architecture
 
@@ -124,11 +125,66 @@ shutdown is enabled with `server.shutdown: graceful`, allowing future
 Kubernetes rolling updates, scaling, and failover workflows to stop the service
 cleanly.
 
+## Docker Container
+
+Module 5 uses a two-stage Docker build. The Maven builder stage resolves
+dependencies, compiles the source, runs tests, and packages the executable JAR.
+The runtime stage contains only the Java 17 runtime and that JAR, so Maven,
+source code, tests, and the Maven cache are not included in the final image.
+
+Dependency descriptor files are copied before source files. Docker can reuse the
+dependency layer when only application source changes; the source and package
+layers are rebuilt as needed.
+
+Build the image from the repository root:
+
+```bash
+docker build -t gitops-dr-simulator:local ./application
+```
+
+Run it as the non-root container user:
+
+```bash
+docker run --name gitops-dr-application-local -p 8080:8080 \
+    -e APPLICATION_VERSION=container-local \
+    -e SPRING_PROFILES_ACTIVE=default \
+    gitops-dr-simulator:local
+```
+
+`SERVER_PORT` may be changed for an internal container port, but the published
+port must match it. `DATABASE_URL` remains optional and is not used by this
+module. Do not pass secrets or AWS credentials into the image build or commit
+them to the repository.
+
+Test the running container:
+
+```bash
+curl http://localhost:8080/api/health
+curl http://localhost:8080/api/info
+curl http://localhost:8080/api/ready
+curl http://localhost:8080/actuator/health
+```
+
+Stop and remove the local test container:
+
+```bash
+docker rm --force gitops-dr-application-local
+```
+
+The runtime image intentionally has no Docker `HEALTHCHECK`. The selected JRE
+image does not include `curl` or `wget`, and adding a client solely for a
+duplicate container-level check would make the image less minimal. The
+Actuator endpoint is available for later Kubernetes liveness and readiness
+probes, which are separate from Docker HEALTHCHECK configuration.
+
+The image is built for the Docker host's default architecture. No multi-platform
+image has been built or verified in this module.
+
 ## Future Modules
 
-A future module will add a multi-stage Docker image and another will add
-Kubernetes manifests and Argo CD configuration. Those modules will use the
-existing health endpoints for probes and GitOps recovery demonstrations.
+A future module will add Kubernetes manifests and Argo CD configuration. Those
+modules will use the existing health endpoints for probes and GitOps recovery
+demonstrations.
 
 There is intentionally no database connection, replication, RTO/RPO result,
 Kubernetes deployment, or multi-region failover in Module 4.
