@@ -161,6 +161,30 @@ scripts/       Bootstrap, deployment, health-check, and cleanup helpers
 - [ ] Run controlled failure scenarios and publish measured reports.
 - [ ] Document a separate, optional multi-region EKS validation design.
 
+## Container Registry And CI Publishing
+
+The project publishes the application container image to GitHub Container
+Registry (GHCR) from GitHub Actions. The image name uses the GitHub repository
+context dynamically so the published image format is:
+
+```text
+ghcr.io/<github-owner>/gitops-disaster-recovery-simulator:<tag>
+```
+
+GitHub Actions authenticates to GHCR using the built-in `GITHUB_TOKEN` with the
+minimum required `packages: write` permission. No Docker password or AWS
+credential is committed to the repository. Pull requests validate the project
+and build the Docker image, but they do not publish images. A successful push to
+`main` publishes:
+
+- `latest` for the current main branch image
+- an immutable commit SHA tag such as `sha-<commit>` for traceable deployment
+
+This keeps the container publication separate from Terraform, AWS deployment,
+and Kubernetes runtime execution. The published image is the existing Spring
+Boot application built by the project Dockerfile, and a future Kubernetes module
+can consume this GHCR image directly in the deployment manifest.
+
 ## Current Status
 
 Module 1, project foundation, is in progress. Terraform files are present as
