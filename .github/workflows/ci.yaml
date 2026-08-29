@@ -1,0 +1,109 @@
+name: GitOps DR Simulator CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  application-validation:
+    name: Application validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run Maven test suite
+        run: mvn -B -f application/pom.xml test
+
+  docker-validation:
+    name: Docker validation
+    needs: application-validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image for CI validation
+        run: docker build -t gitops-dr-simulator:ci ./application
+
+  terraform-validation:
+    name: Terraform validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+
+      - name: Terraform format check
+        run: terraform -chdir=terraform fmt -check -diff
+
+      - name: Terraform init
+        run: terraform -chdir=terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate
+
+      - name: Terraform plan (preview only, no apply)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+          AWS_DEFAULT_REGION: ap-south-1
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+            terraform -chdir=terraform plan -input=false -lock=false -no-color
+          else
+            echo "Skipping terraform plan because AWS credentials are not configured for this CI run."
+          fi
+
+  kubernetes-validation:
+  name: Kubernetes manifest validation
+  needs: application-validation
+  runs-on: ubuntu-latest
+
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Install YAML validation dependency
+      run: python -m pip install --disable-pip-version-check PyYAML
+
+    - name: Validate YAML manifest files without a live cluster
+      run: |
+        python - <<'PY'
+        from pathlib import Path
+        import yaml
+
+        manifest_paths = sorted(Path('kubernetes').rglob('*.yaml'))
+
+        if not manifest_paths:
+            raise SystemExit('No Kubernetes YAML manifests found to validate.')
+
+        for path in manifest_paths:
+            with path.open('r', encoding='utf-8') as handle:
+                list(yaml.safe_load_all(handle))
+            print(f'Validated YAML: {path}')
+        PY
