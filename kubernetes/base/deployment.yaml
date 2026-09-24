@@ -20,7 +20,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: gitops-dr-simulator
-          image: gitops-dr-simulator:local
+          image: ghcr.io/sanjai707/gitops-disaster-recovery-simulator:sha-375010f
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
